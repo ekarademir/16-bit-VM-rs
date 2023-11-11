@@ -36,6 +36,14 @@ impl Cpu {
         self.get_register(name)
     }
 
+    pub fn peek_tape(&self, address: usize) -> Vec<u8> {
+        self.memory.peek(address)
+    }
+
+    pub fn peek(&self, address: usize) -> u16 {
+        self.memory.get_word(address)
+    }
+
     pub fn step_n(&mut self, n: usize) {
         for _ in 0..n {
             self.step();
@@ -71,13 +79,28 @@ impl Cpu {
 
     fn execute(&mut self, instruction: Instruction) {
         match instruction {
-            Instruction::MovLitR1 => {
+            Instruction::MovLitReg => {
                 let value = self.fetch16();
-                self.set_register(Register::Register1, value);
+                let register = self.fetch();
+                self.set_register(register.into(), value);
             }
-            Instruction::MovLitR2 => {
-                let value = self.fetch16();
-                self.set_register(Register::Register2, value);
+            Instruction::MovRegReg => {
+                let register_from = self.fetch();
+                let register_to = self.fetch();
+                let value = self.get_register(register_from.into());
+                self.set_register(register_to.into(), value);
+            }
+            Instruction::MovMemReg => {
+                let address = self.fetch16();
+                let register_to = self.fetch();
+                let value = self.memory.get_word(address as usize);
+                self.set_register(register_to.into(), value);
+            }
+            Instruction::MovRegMem => {
+                let register_from = self.fetch();
+                let address = self.fetch16();
+                let value = self.get_register(register_from.into());
+                self.memory.set_word(address as usize, value);
             }
             Instruction::AddRegReg => {
                 let register1 = self.fetch();
@@ -87,6 +110,16 @@ impl Cpu {
                 let value2 = self.register.get_word(register2 as usize * 2);
 
                 self.set_register(Register::Accumulator, value1 + value2);
+            }
+            Instruction::JmpNotEq => {
+                let value = self.fetch16();
+                let address = self.fetch16();
+
+                let acc_value = self.get_register(Register::Accumulator);
+
+                if value != acc_value {
+                    self.set_register(Register::InstructionPointer, address);
+                }
             }
             _ => {}
         }
@@ -112,22 +145,47 @@ pub enum Register {
     Register6,
     Register7,
     Register8,
+    None,
+}
+
+impl From<u8> for Register {
+    fn from(value: u8) -> Self {
+        match value {
+            0 => Register::InstructionPointer,
+            1 => Register::Accumulator,
+            2 => Register::Register1,
+            3 => Register::Register2,
+            4 => Register::Register3,
+            5 => Register::Register4,
+            6 => Register::Register5,
+            7 => Register::Register6,
+            8 => Register::Register7,
+            9 => Register::Register8,
+            _ => Register::None,
+        }
+    }
 }
 
 #[repr(u8)]
 pub enum Instruction {
     Noop = 0x00,
-    MovLitR1 = 0x10,
-    MovLitR2 = 0x11,
-    AddRegReg = 0x12,
+    MovLitReg = 0x10,
+    MovRegReg = 0x11,
+    MovRegMem = 0x12,
+    MovMemReg = 0x13,
+    AddRegReg = 0x14,
+    JmpNotEq = 0x15,
 }
 
 impl From<u8> for Instruction {
     fn from(value: u8) -> Self {
         match value {
-            0x10 => Instruction::MovLitR1,
-            0x11 => Instruction::MovLitR2,
-            0x12 => Instruction::AddRegReg,
+            0x10 => Instruction::MovLitReg,
+            0x11 => Instruction::MovRegReg,
+            0x12 => Instruction::MovRegMem,
+            0x13 => Instruction::MovMemReg,
+            0x14 => Instruction::AddRegReg,
+            0x15 => Instruction::JmpNotEq,
             _ => Instruction::Noop,
         }
     }
@@ -151,16 +209,18 @@ mod tests {
     }
 
     #[test]
-    fn test_move_to_r1() {
+    fn test_move_lit_to_reg() {
         let mut memory = Memory::new(32);
 
         // mov 0x1234, r1
         let mut i = 0;
-        memory.set_byte(i, Instruction::MovLitR1 as u8);
+        memory.set_byte(i, Instruction::MovLitReg as u8);
         i += 1;
         memory.set_byte(i, 0x12);
         i += 1;
         memory.set_byte(i, 0x34);
+        i += 1;
+        memory.set_byte(i, Register::Register1 as u8);
 
         let mut cpu = Cpu::new(memory);
         cpu.step();
@@ -169,22 +229,56 @@ mod tests {
     }
 
     #[test]
-    fn test_move_to_r2() {
-        let mut memory = Memory::new(32);
+    fn test_move_mem_to_reg() {
+        let mut memory = Memory::new(256 * 256);
 
-        // mov 0x1234, r2
+        // mov #1000, r1
         let mut i = 0;
-        memory.set_byte(i, Instruction::MovLitR2 as u8);
+        memory.set_byte(i, Instruction::MovMemReg as u8);
         i += 1;
-        memory.set_byte(i, 0x12);
+        memory.set_byte(i, 0x10);
         i += 1;
-        memory.set_byte(i, 0x34);
+        memory.set_byte(i, 0x00);
+        i += 1;
+        memory.set_byte(i, Register::Register2 as u8);
+
+        memory.set_byte(0x1000, 0x42);
+        memory.set_byte(0x1001, 0x43);
 
         let mut cpu = Cpu::new(memory);
         cpu.step();
 
-        assert_eq!(cpu.peek_register(Register::Register1), 0x0000);
-        assert_eq!(cpu.peek_register(Register::Register2), 0x1234);
+        assert_eq!(cpu.peek_register(Register::Register2), 0x4243);
+    }
+
+    #[test]
+    fn test_move_reg_to_mem() {
+        let mut memory = Memory::new(256 * 256);
+
+        // mov 0x1234, r1
+        let mut i = 0;
+        memory.set_byte(i, Instruction::MovLitReg as u8);
+        i += 1;
+        memory.set_byte(i, 0x12);
+        i += 1;
+        memory.set_byte(i, 0x34);
+        i += 1;
+        memory.set_byte(i, Register::Register3 as u8);
+
+        // mov r1, #1000
+        i += 1;
+        memory.set_byte(i, Instruction::MovRegMem as u8);
+        i += 1;
+        memory.set_byte(i, Register::Register3 as u8);
+        i += 1;
+        memory.set_byte(i, 0x10);
+        i += 1;
+        memory.set_byte(i, 0x00);
+
+        let mut cpu = Cpu::new(memory);
+        cpu.step_n(2);
+
+        assert_eq!(cpu.peek_tape(0x1000), [0x12, 0x34, 0, 0, 0, 0, 0, 0]);
     }
 
     #[test]
@@ -193,22 +287,26 @@ mod tests {
 
         // mov 0x1234, r1
         let mut i = 0;
-        memory.set_byte(i, Instruction::MovLitR1 as u8);
+        memory.set_byte(i, Instruction::MovLitReg as u8);
         i += 1;
         memory.set_byte(i, 0x12);
         i += 1;
         memory.set_byte(i, 0x34);
         i += 1;
+        memory.set_byte(i, Register::Register1 as u8);
 
         // mov 0xabcd, r2
-        memory.set_byte(i, Instruction::MovLitR2 as u8);
+        i += 1;
+        memory.set_byte(i, Instruction::MovLitReg as u8);
         i += 1;
         memory.set_byte(i, 0xab);
         i += 1;
         memory.set_byte(i, 0xcd);
         i += 1;
+        memory.set_byte(i, Register::Register2 as u8);
 
         // add r1, r2
+        i += 1;
         memory.set_byte(i, Instruction::AddRegReg as u8);
         i += 1;
         memory.set_byte(i, Register::Register1 as u8);
@@ -221,5 +319,73 @@ mod tests {
         assert_eq!(cpu.peek_register(Register::Register1), 0x1234);
         assert_eq!(cpu.peek_register(Register::Register2), 0xabcd);
         assert_eq!(cpu.peek_register(Register::Accumulator), 0xbe01);
+    }
+
+    #[test]
+    fn counts_to_three() {
+        let mut memory = Memory::new(256 * 256);
+
+        // start:
+        //   mov #0x0100, r1
+        //   mov 0x0001, r2
+        //   add r1, r2
+        //   mov acc, #0100
+        //   jne 0x0003, start:
+
+        // mov #0x0100, r1
+        let mut i = 0;
+        memory.set_byte(i, Instruction::MovMemReg as u8);
+        i += 1;
+        memory.set_byte(i, 0x01);
+        i += 1;
+        memory.set_byte(i, 0x00);
+        i += 1;
+        memory.set_byte(i, Register::Register1 as u8);
+
+        // mov 0x0001, r2
+        i += 1;
+        memory.set_byte(i, Instruction::MovLitReg as u8);
+        i += 1;
+        memory.set_byte(i, 0x00);
+        i += 1;
+        memory.set_byte(i, 0x01);
+        i += 1;
+        memory.set_byte(i, Register::Register2 as u8);
+
+        // add r1, r2
+        i += 1;
+        memory.set_byte(i, Instruction::AddRegReg as u8);
+        i += 1;
+        memory.set_byte(i, Register::Register1 as u8);
+        i += 1;
+        memory.set_byte(i, Register::Register2 as u8);
+
+        // mov acc, #0100
+        i += 1;
+        memory.set_byte(i, Instruction::MovRegMem as u8);
+        i += 1;
+        memory.set_byte(i, Register::Accumulator as u8);
+        i += 1;
+        memory.set_byte(i, 0x01);
+        i += 1;
+        memory.set_byte(i, 0x00);
+
+        // jne 0x0003, start:
+        i += 1;
+        memory.set_byte(i, Instruction::JmpNotEq as u8);
+        i += 1;
+        memory.set_byte(i, 0x00);
+        i += 1;
+        memory.set_byte(i, 0x03);
+        i += 1;
+        memory.set_byte(i, 0x00);
+        i += 1;
+        memory.set_byte(i, 0x00);
+
+        let mut cpu = Cpu::new(memory);
+        cpu.step_n(15);
+
+        assert_eq!(cpu.peek_register(Register::Accumulator), 0x0003);
+        assert_eq!(cpu.peek(0x0100), 0x0003);
     }
 }

@@ -10,6 +10,11 @@ impl Memory {
         Memory { inner }
     }
 
+    pub fn peek(&self, offset: usize) -> Vec<u8> {
+        let slice = self.inner.as_slice();
+        slice[offset..offset + 8].to_vec()
+    }
+
     pub fn set_byte(&mut self, offset: usize, value: u8) {
         let buffer_len = self.inner.len();
         if offset >= buffer_len {
@@ -86,14 +91,5 @@ mod tests {
         let value = mem.get_byte(offs);
 
         assert_eq!(value, 0x42);
-    }
-
-    #[test]
-    fn to_index_test() {
-        use super::to_index;
-
-        assert_eq!(to_index(16), 2);
-        assert_eq!(to_index(8), 1);
-        assert_eq!(to_index(0), 0);
     }
 }
