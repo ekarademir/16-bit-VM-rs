@@ -4,4 +4,4 @@ Following [Frank Stokes](https://github.com/lowbyteproductions) on [YouTube](htt
 
 ## Changes
 
-1. [Episode one](). Implement MOV and ADD
+1. [Episode one](https://github.com/ekarademir/16-bit-VM-rs/commit/0a0b7f48dc821e85f9f6692b4ab41d3835416e56). Implement MOV and ADD
