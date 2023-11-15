@@ -10,9 +10,8 @@ impl Memory {
         Memory { inner }
     }
 
-    pub fn peek(&self, offset: usize) -> Vec<u8> {
-        let slice = self.inner.as_slice();
-        slice[offset..offset + 8].to_vec()
+    pub fn byte_length(&self) -> usize {
+        self.inner.len()
     }
 
     pub fn set_byte(&mut self, offset: usize, value: u8) {
@@ -47,6 +46,16 @@ impl Memory {
     pub fn get_word(&self, offset: usize) -> u16 {
         let slice = self.inner.as_slice();
         u16::from_be_bytes([slice[offset], slice[offset + 1]])
+    }
+
+    pub fn peek(&self, offset: usize, length: usize) -> Vec<u8> {
+        let slice = self.inner.as_slice();
+        let end = if (offset + length) < slice.len() {
+            offset + length
+        } else {
+            slice.len()
+        };
+        slice[offset..end].to_vec()
     }
 }
 
